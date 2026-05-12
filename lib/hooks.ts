@@ -40,38 +40,157 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (val: T | 
   return [storedValue, setValue];
 }
 
-export function useSSE(url: string, onMessage: (data: unknown) => void) {
-  const [connected, setConnected] = useState(false);
+/**
+ * Enhanced SSE hook with:
+ * - Last-Event-ID header for resuming streams
+ * - Exponential backoff with jitter
+ * - Connection state reporting
+ * - Automatic cleanup on unmount
+ */
+export interface SSEState<T> {
+  data: T | null;
+  connected: boolean;
+  connecting: boolean;
+  error: string | null;
+  lastEventId: string | null;
+}
+
+export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
+  const [state, setState] = useState<SSEState<T>>({
+    data: null,
+    connected: false,
+    connecting: false,
+    error: null,
+    lastEventId: null,
+  });
+
   const esRef = useRef<EventSource | null>(null);
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 10;
+  const baseDelay = 1000;
+  const isMountedRef = useRef(true);
 
   const connect = useCallback(() => {
-    if (esRef.current) esRef.current.close();
-    const es = new EventSource(url);
-    esRef.current = es;
+    if (!isMountedRef.current) return;
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
 
-    es.onopen = () => setConnected(true);
-    es.onmessage = (e) => {
-      try {
-        onMessage(JSON.parse(e.data));
-      } catch {}
-    };
-    es.onerror = () => {
-      setConnected(false);
-      es.close();
-      reconnectTimeout.current = setTimeout(connect, 3000);
-    };
-  }, [url, onMessage]);
+    setState((prev) => ({ ...prev, connecting: true, error: null }));
+
+    // Build URL with Last-Event-ID if available
+    let connectUrl = url;
+    const lastId = state.lastEventId;
+    if (lastId && typeof window !== "undefined") {
+      const sep = url.includes("?") ? "&" : "?";
+      connectUrl = `${url}${sep}lastEventId=${encodeURIComponent(lastId)}`;
+    }
+
+    try {
+      const es = new EventSource(connectUrl);
+      esRef.current = es;
+
+      es.onopen = () => {
+        if (!isMountedRef.current) return;
+        reconnectAttemptsRef.current = 0;
+        setState((prev) => ({
+          ...prev,
+          connected: true,
+          connecting: false,
+          error: null,
+        }));
+      };
+
+      // Listen for specific event types
+      eventTypes.forEach((type) => {
+        es.addEventListener(type, (e: MessageEvent) => {
+          if (!isMountedRef.current) return;
+          try {
+            const parsed = JSON.parse(e.data);
+            const eventId = (e as any).lastEventId || parsed.id || null;
+            setState((prev) => ({
+              ...prev,
+              data: parsed,
+              lastEventId: eventId || prev.lastEventId,
+            }));
+          } catch (err) {
+            // Non-JSON data — store as string
+            setState((prev) => ({
+              ...prev,
+              data: e.data as unknown as T,
+            }));
+          }
+        });
+      });
+
+      // Also catch generic "message" events if not already covered
+      if (!eventTypes.includes("message")) {
+        es.onmessage = (e) => {
+          if (!isMountedRef.current) return;
+          try {
+            const parsed = JSON.parse(e.data);
+            const eventId = e.lastEventId || parsed.id || null;
+            setState((prev) => ({
+              ...prev,
+              data: parsed,
+              lastEventId: eventId || prev.lastEventId,
+            }));
+          } catch {
+            setState((prev) => ({
+              ...prev,
+              data: e.data as unknown as T,
+            }));
+          }
+        };
+      }
+
+      es.onerror = () => {
+        if (!isMountedRef.current) return;
+        es.close();
+        esRef.current = null;
+        setState((prev) => ({
+          ...prev,
+          connected: false,
+          connecting: false,
+          error: "Connection lost. Retrying...",
+        }));
+
+        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+          const delay = Math.min(
+            30000,
+            baseDelay * Math.pow(2, reconnectAttemptsRef.current) + Math.random() * 1000
+          );
+          reconnectAttemptsRef.current++;
+          reconnectTimeoutRef.current = setTimeout(connect, delay);
+        } else {
+          setState((prev) => ({
+            ...prev,
+            error: "Max reconnection attempts reached. Please refresh.",
+          }));
+        }
+      };
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        connecting: false,
+        error: `Failed to connect: ${err}`,
+      }));
+    }
+  }, [url, eventTypes, state.lastEventId]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     connect();
     return () => {
+      isMountedRef.current = false;
       esRef.current?.close();
-      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
   }, [connect]);
 
-  return connected;
+  return state;
 }
 
 export function useClock() {

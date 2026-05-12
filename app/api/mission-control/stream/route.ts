@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,20 +16,28 @@ function getBotDataUrl(): string {
   return "http://localhost:8788";
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const encoder = new TextEncoder();
   let id = 0;
+
+  // Support Last-Event-ID for resuming streams
+  const lastEventId = req.headers.get("last-event-id") || req.nextUrl.searchParams.get("lastEventId");
+  if (lastEventId) {
+    id = parseInt(lastEventId, 10) || 0;
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
       const sendEvent = (type: string, data: unknown) => {
         try {
-          const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString(), id: ++id });
-          controller.enqueue(encoder.encode(`id: ${id}\ndata: ${payload}\n\n`));
+          id++;
+          const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString(), id });
+          controller.enqueue(encoder.encode(`id: ${id}\nevent: message\ndata: ${payload}\n\n`));
         } catch {}
       };
 
-      sendEvent("init", { status: "connected", ts: new Date().toISOString() });
+      // Send init event immediately
+      sendEvent("init", { status: "connected", ts: new Date().toISOString(), resumedFrom: lastEventId });
 
       // Poll bot data every 1 second
       let lastData: string | null = null;
@@ -63,10 +71,19 @@ export async function GET() {
         }
       }, 15000);
 
+      // Vercel Edge timeout safety: close gracefully at 240s
+      const gracefulClose = setTimeout(() => {
+        try {
+          sendEvent("reconnect", { reason: "stream_lifetime", nextAttempt: 500 });
+          controller.close();
+        } catch {}
+      }, 240000);
+
       // Cleanup on close
       return () => {
         clearInterval(pollInterval);
         clearInterval(keepalive);
+        clearTimeout(gracefulClose);
       };
     },
   });
