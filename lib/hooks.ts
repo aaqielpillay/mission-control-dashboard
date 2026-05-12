@@ -71,6 +71,12 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
   const baseDelay = 1000;
   const isMountedRef = useRef(true);
   const lastEventIdRef = useRef<string | null>(null);
+  const urlRef = useRef(url);
+  const eventTypesRef = useRef(eventTypes);
+
+  // Keep refs current without triggering reconnects
+  urlRef.current = url;
+  eventTypesRef.current = eventTypes;
 
   const connect = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -82,11 +88,11 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
     setState((prev) => ({ ...prev, connecting: true, error: null }));
 
     // Build URL with Last-Event-ID if available
-    let connectUrl = url;
+    let connectUrl = urlRef.current;
     const lastId = lastEventIdRef.current;
     if (lastId && typeof window !== "undefined") {
-      const sep = url.includes("?") ? "&" : "?";
-      connectUrl = `${url}${sep}lastEventId=${encodeURIComponent(lastId)}`;
+      const sep = connectUrl.includes("?") ? "&" : "?";
+      connectUrl = `${connectUrl}${sep}lastEventId=${encodeURIComponent(lastId)}`;
     }
 
     try {
@@ -105,7 +111,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
       };
 
       // Listen for specific event types
-      eventTypes.forEach((type) => {
+      eventTypesRef.current.forEach((type) => {
         es.addEventListener(type, (e: MessageEvent) => {
           if (!isMountedRef.current) return;
           try {
@@ -128,7 +134,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
       });
 
       // Also catch generic "message" events if not already covered
-      if (!eventTypes.includes("message")) {
+      if (!eventTypesRef.current.includes("message")) {
         es.onmessage = (e) => {
           if (!isMountedRef.current) return;
           try {
@@ -181,7 +187,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
         error: `Failed to connect: ${err}`,
       }));
     }
-  }, [url, eventTypes]);
+  }, []); // No deps — refs keep everything current
 
   useEffect(() => {
     isMountedRef.current = true;
