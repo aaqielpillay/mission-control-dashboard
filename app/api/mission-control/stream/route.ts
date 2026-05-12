@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-// Bot tunnel URL — updated by the bot on startup via a state file
 const TUNNEL_URL_FILE = "/tmp/bot-tunnel-url.txt";
 
 function getBotDataUrl(): string {
@@ -26,17 +25,23 @@ export async function GET(req: NextRequest) {
     id = parseInt(lastEventId, 10) || 0;
   }
 
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let keepalive: ReturnType<typeof setInterval> | null = null;
+  let gracefulClose: ReturnType<typeof setTimeout> | null = null;
+
   const stream = new ReadableStream({
-    async start(controller) {
+    start(controller) {
       const sendEvent = (type: string, data: unknown) => {
         try {
           id++;
           const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString(), id });
           controller.enqueue(encoder.encode(`id: ${id}\nevent: message\ndata: ${payload}\n\n`));
-        } catch {}
+        } catch {
+          // Controller closed
+        }
       };
 
-      // Send init event immediately
+      // Send init event immediately (synchronous)
       sendEvent("init", { status: "connected", ts: new Date().toISOString(), resumedFrom: lastEventId });
 
       // Poll bot data every 1 second
@@ -55,40 +60,54 @@ export async function GET(req: NextRequest) {
               sendEvent("bot_state", data);
             }
           }
-        } catch {}
+        } catch {
+          // Silently fail — bot may be offline
+        }
       };
 
-      // Send bot data immediately then every 1s
-      await pollBot();
-      const pollInterval = setInterval(pollBot, 1000);
+      // Fire initial poll after stream starts
+      const initialPoll = setTimeout(() => {
+        pollBot();
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = setInterval(pollBot, 1000);
+      }, 100);
 
       // Keepalive ping every 15s
-      const keepalive = setInterval(() => {
+      keepalive = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keepalive ${Date.now()}\n\n`));
         } catch {
-          clearInterval(keepalive);
+          if (keepalive) clearInterval(keepalive);
         }
       }, 15000);
 
       // Vercel Edge timeout safety: close gracefully at 240s
-      const gracefulClose = setTimeout(() => {
+      gracefulClose = setTimeout(() => {
         try {
           sendEvent("reconnect", { reason: "stream_lifetime", nextAttempt: 500 });
           controller.close();
         } catch {}
       }, 240000);
 
-      // Cleanup on close
-      return () => {
-        clearInterval(pollInterval);
-        clearInterval(keepalive);
-        clearTimeout(gracefulClose);
+      // Cleanup on cancel
+      const cleanup = () => {
+        clearTimeout(initialPoll);
+        if (pollInterval) clearInterval(pollInterval);
+        if (keepalive) clearInterval(keepalive);
+        if (gracefulClose) clearTimeout(gracefulClose);
       };
+
+      // Store cleanup on controller for cancel handler
+      (controller as any).__cleanup = cleanup;
+    },
+
+    cancel(controller) {
+      const cleanup = (controller as any).__cleanup;
+      if (cleanup) cleanup();
     },
   });
 
-  return new NextResponse(stream, {
+  return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
