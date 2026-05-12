@@ -34,7 +34,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-void">
+    <div className="flex h-screen overflow-hidden bg-bg-primary">
       {/* Desktop Sidebar */}
       <div className="desktop-sidebar">
         <Sidebar
