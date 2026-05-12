@@ -2,6 +2,20 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+// Bot tunnel URL — updated by the bot on startup via a state file
+const TUNNEL_URL_FILE = "/tmp/bot-tunnel-url.txt";
+
+function getBotDataUrl(): string {
+  try {
+    if (process.env.BOT_DATA_URL) return process.env.BOT_DATA_URL;
+    const { existsSync, readFileSync } = require("fs");
+    if (existsSync(TUNNEL_URL_FILE)) {
+      return readFileSync(TUNNEL_URL_FILE, "utf8").trim();
+    }
+  } catch {}
+  return "http://localhost:8788";
+}
+
 export async function GET() {
   const encoder = new TextEncoder();
   let id = 0;
@@ -9,81 +23,36 @@ export async function GET() {
   const stream = new ReadableStream({
     async start(controller) {
       const sendEvent = (type: string, data: unknown) => {
-        const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString(), id: ++id });
-        controller.enqueue(encoder.encode(`id: ${id}\ndata: ${payload}\n\n`));
+        try {
+          const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString(), id: ++id });
+          controller.enqueue(encoder.encode(`id: ${id}\ndata: ${payload}\n\n`));
+        } catch {}
       };
 
-      // Send initial connection event
       sendEvent("init", { status: "connected", ts: new Date().toISOString() });
 
-      // Try to fetch real data from bot API, fall back to mock
-      let realData: unknown = null;
-      try {
-        const res = await fetch("http://localhost:8788/data", {
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok) {
-          realData = await res.json();
-        }
-      } catch {
-        // Bot not reachable — use mock data
-      }
-
-      if (realData) {
-        sendEvent("bot_state", realData);
-      }
-
-      // Mock event generator — simulates live dashboard activity
-      const mockEvents = [
-        () => sendEvent("activity", { agentId: "athena", agentName: "Athena", action: "SSE stream connected — Mission Control live", type: "info" }),
-        () => sendEvent("tick", { ts: new Date().toISOString() }),
-        () => sendEvent("signal", {
-          id: `sig-${Date.now()}`,
-          source: Math.random() > 0.5 ? "BOBNET T1" : "BOBNET T2",
-          token: ["BABYTROLL", "LOBSTERMODE", "FLOKI", "PEPE"][Math.floor(Math.random() * 4)],
-          mint: "mockMint123",
-          aiScore: 20 + Math.floor(Math.random() * 25),
-          direction: Math.random() > 0.5 ? "buy" : "sell",
-          confidence: 50 + Math.floor(Math.random() * 50),
-          timestamp: new Date().toISOString(),
-          executed: Math.random() > 0.5,
-        }),
-        () => sendEvent("activity", {
-          agentId: "bobnet",
-          agentName: "BOBNET Listener",
-          action: "New signal detected on T2 channel",
-          type: "warning",
-        }),
-        () => sendEvent("comms", {
-          id: `comm-${Date.now()}`,
-          senderId: "hermes",
-          recipientId: "cross-ref",
-          content: "Cross-referencing latest signal...",
-          timestamp: new Date().toISOString(),
-        }),
-        () => sendEvent("position_update", {
-          token: "BABYTROLL",
-          currentPrice: 0.00000089 + (Math.random() * 0.0000001 - 0.00000005),
-          pnlPercent: 5 + Math.random() * 5,
-        }),
-        () => sendEvent("activity", {
-          agentId: "exit-manager",
-          agentName: "Exit Manager",
-          action: "Trailing stop still armed — monitoring BABYTROLL",
-          type: "info",
-        }),
-      ];
-
-      let eventIdx = 0;
-      const interval = setInterval(() => {
+      // Poll bot data every 1 second
+      let lastData: string | null = null;
+      const pollBot = async () => {
         try {
-          mockEvents[eventIdx % mockEvents.length]();
-          eventIdx++;
-        } catch {
-          clearInterval(interval);
-          controller.close();
-        }
-      }, 3000);
+          const baseUrl = getBotDataUrl();
+          const res = await fetch(`${baseUrl}/data`, {
+            signal: AbortSignal.timeout(3000),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const dataStr = JSON.stringify(data);
+            if (dataStr !== lastData) {
+              lastData = dataStr;
+              sendEvent("bot_state", data);
+            }
+          }
+        } catch {}
+      };
+
+      // Send bot data immediately then every 1s
+      await pollBot();
+      const pollInterval = setInterval(pollBot, 1000);
 
       // Keepalive ping every 15s
       const keepalive = setInterval(() => {
@@ -96,7 +65,7 @@ export async function GET() {
 
       // Cleanup on close
       return () => {
-        clearInterval(interval);
+        clearInterval(pollInterval);
         clearInterval(keepalive);
       };
     },
