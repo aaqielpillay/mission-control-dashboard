@@ -2,27 +2,32 @@
 
 export function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
   const cls = {
-    high: "badge badge-high",
-    medium: "badge badge-medium",
-    low: "badge badge-low",
+    high: "badge badge-danger",
+    medium: "badge badge-warning",
+    low: "badge badge-success",
   };
   return <span className={cls[priority]}>{priority}</span>;
 }
 
 export function DepartmentBadge({ dept }: { dept: string }) {
-  return (
-    <span className="badge bg-[rgba(240,240,250,0.08)] text-txt-secondary border border-[rgba(255,255,255,0.06)]">
-      {dept}
-    </span>
-  );
+  return <span className="badge">{dept}</span>;
 }
 
 export function StatusBadge({ status }: { status: "active" | "idle" | "offline" }) {
-  const labels = { active: "ACTIVE", idle: "IDLE", offline: "OFF" };
-  const dots = { active: "status-dot status-active", idle: "status-dot status-idle", offline: "status-dot status-offline" };
+  const labels = { active: "Active", idle: "Idle", offline: "Offline" };
+  const dots = {
+    active: "status-dot status-active",
+    idle: "status-dot status-idle",
+    offline: "status-dot status-offline",
+  };
+  const colors = {
+    active: "text-success",
+    idle: "text-warning",
+    offline: "text-danger",
+  };
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-txt-muted">
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${colors[status]}`}>
       <span className={dots[status]} />
       {labels[status]}
     </span>

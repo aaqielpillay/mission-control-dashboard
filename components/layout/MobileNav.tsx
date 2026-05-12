@@ -24,12 +24,12 @@ export default function MobileNav({ section, onNavigate }: MobileNavProps) {
           onClick={() => onNavigate(item.id)}
           className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded transition-colors ${
             section === item.id
-              ? "text-txt-primary"
-              : "text-txt-muted"
+              ? "text-accent"
+              : "text-txt-ghost"
           }`}
         >
           {item.icon}
-          <span className="text-[0.55rem] font-semibold uppercase tracking-[0.08em]">{item.label}</span>
+          <span className="text-[10px] font-medium">{item.label}</span>
         </button>
       ))}
     </nav>
