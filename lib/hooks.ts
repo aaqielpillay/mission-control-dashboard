@@ -59,7 +59,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
   const [state, setState] = useState<SSEState<T>>({
     data: null,
     connected: false,
-    connecting: false,
+    connecting: true, // Show connecting on first render / SSR
     error: null,
     lastEventId: null,
   });
