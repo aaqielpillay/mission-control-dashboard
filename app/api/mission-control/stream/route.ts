@@ -3,152 +3,199 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 /*═══════════════════════════════════════════
-  ATHENA MISSION CONTROL — SSE BACKEND ENDPOINT
+  ATHENA MISSION CONTROL — LIVE SSE BACKEND
   Protocol: text/event-stream
+  Source:   Live data-service via Cloudflare tunnel
   Tick Rate: 1 second
   ═══════════════════════════════════════════*/
 
-const TUNNEL_URL_FILE = "/tmp/bot-tunnel-url.txt";
+const DATA_SERVICE_URL =
+  process.env.DATA_SERVICE_URL ||
+  "https://predicted-existing-military-leg.trycloudflare.com/data";
 
-function getBotDataUrl(): string {
+/*───────────────────────────────────────────
+   IN-MEMORY ROLLING STATE
+   ───────────────────────────────────────────*/
+const ROLLING_SIZE = 30;
+const equityHistory: number[] = [];
+let maxEquity = 0;
+let lastData: any = null;
+let consecutiveErrors = 0;
+
+function pushEquity(val: number) {
+  if (equityHistory.length >= ROLLING_SIZE) equityHistory.shift();
+  equityHistory.push(val);
+  if (val > maxEquity) maxEquity = val;
+}
+
+async function fetchLiveData(): Promise<any> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    if (process.env.BOT_DATA_URL) return process.env.BOT_DATA_URL;
-    const { existsSync, readFileSync } = require("fs");
-    if (existsSync(TUNNEL_URL_FILE)) {
-      return readFileSync(TUNNEL_URL_FILE, "utf8").trim();
-    }
-  } catch {}
-  return "";
-}
-
-/*───────────────────────────────────────────
-   IN-MEMORY SIMULATION STATE
-   ───────────────────────────────────────────*/
-const state = {
-  equity: 1000.0,
-  equityHistory: Array(30).fill(1000.0),
-  winRate: 55.0,
-  totalTrades: 0,
-  dailyPnl: 0.0,
-  totalPnl: 0.0,
-  signals: [] as any[],
-  sentiment: { fearGreed: 50, socialVolume: 1000, trend: "NEUTRAL" as string },
-  agent: { status: "ONLINE", apiLatency: 20, uptime: 0, cpu: 10.0, memory: 30.0 },
-  risk: { currentDrawdown: 0.0, maxDrawdown: 0.0, var: 5.0, openPositions: 0, maxPositions: 5 },
-  logs: [
-    { level: "INFO", message: "SYSTEM INITIALIZED — ATHENA V2 ONLINE", timestamp: new Date().toISOString() },
-  ],
-};
-
-const TOKENS = ["BONK", "WIF", "PEPE", "FLOKI", "GIGA", "BABYTROLL", "LOBSTERMODE"];
-const TRENDS = ["BULLISH", "BEARISH", "NEUTRAL"];
-
-function randomFloat(min: number, max: number) {
-  return Math.random() * (max - min) + min;
-}
-function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/*───────────────────────────────────────────
-   STATE EVOLUTION LOGIC — 1-second tick
-   ───────────────────────────────────────────*/
-function evolveState() {
-  // Agent vitals
-  state.agent.uptime += 1;
-  state.agent.apiLatency = randomInt(15, 120);
-  state.agent.cpu = Math.min(100, Math.max(5, state.agent.cpu + randomFloat(-2, 2)));
-  state.agent.memory = Math.min(100, Math.max(10, state.agent.memory + randomFloat(-1, 1)));
-
-  // Market micro-movements
-  const marketMove = randomFloat(-5, 8);
-  state.equity = Math.max(100, state.equity + marketMove);
-  state.equityHistory.shift();
-  state.equityHistory.push(state.equity);
-  state.dailyPnl = state.equity - 1000;
-  state.totalPnl = state.dailyPnl;
-
-  // Drawdown
-  const peak = Math.max(...state.equityHistory);
-  state.risk.currentDrawdown = peak > 0 ? ((peak - state.equity) / peak) * 100 : 0;
-  state.risk.maxDrawdown = Math.max(state.risk.maxDrawdown, state.risk.currentDrawdown);
-
-  // Sentiment
-  state.sentiment.fearGreed = Math.min(100, Math.max(0, state.sentiment.fearGreed + randomInt(-5, 5)));
-  state.sentiment.socialVolume = Math.max(0, state.sentiment.socialVolume + randomInt(-200, 300));
-  if (Math.random() > 0.9) {
-    state.sentiment.trend = TRENDS[randomInt(0, 2)];
+    const res = await fetch(DATA_SERVICE_URL, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": "AthenaDashboard/1.0" },
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    consecutiveErrors = 0;
+    lastData = json;
+    return json;
+  } catch (e) {
+    clearTimeout(timer);
+    consecutiveErrors++;
+    // Return stale data if available, else throw
+    if (lastData) return lastData;
+    throw e;
   }
+}
 
-  // Signal generation (low frequency)
-  if (Math.random() > 0.85) {
-    const type = Math.random() > 0.5 ? "BUY" : "SELL";
-    const token = TOKENS[randomInt(0, TOKENS.length - 1)];
-    const confidence = randomFloat(0.6, 0.99);
-    const signal = {
-      id: `sig_${Date.now()}_${randomInt(1000, 9999)}`,
-      type,
-      token,
-      confidence: parseFloat(confidence.toFixed(2)),
-      timestamp: new Date().toISOString(),
+/*───────────────────────────────────────────
+   TRANSFORM LIVE DATA → DASHBOARD PAYLOAD
+   ───────────────────────────────────────────*/
+function transform(live: any) {
+  const wallet = live?.wallet || {};
+  const bot = live?.bot || {};
+  const positions = live?.positions || [];
+  const closedTrades = live?.closedTrades || [];
+  const scanner = live?.scanner || {};
+  const subagents = live?.subagents || [];
+  const boardroom = live?.boardroom || [];
+  const system = live?.system || {};
+  const pm2 = live?.pm2 || [];
+  const config = live?.config || {};
+  const errors = live?.meta?.errors || system?.errors || [];
+  const tradingLogRaw = live?.tradingLog || [];
+
+  // ── Equity ──
+  const equity = parseFloat((wallet.portfolioUSD || 0).toFixed(2));
+  pushEquity(equity);
+
+  // ── Win Rate ──
+  const wins = bot.winCount || 0;
+  const losses = bot.lossCount || 0;
+  const totalTrades = wins + losses;
+  const winRate = totalTrades > 0 ? parseFloat(((wins / totalTrades) * 100).toFixed(1)) : 0;
+
+  // ── PnL ──
+  const totalPnl = parseFloat((bot.totalPnL || 0).toFixed(2));
+
+  // ── Drawdown ──
+  const peak = Math.max(maxEquity, ...equityHistory);
+  const currentDrawdown = peak > 0 ? parseFloat((((peak - equity) / peak) * 100).toFixed(2)) : 0;
+  const maxDrawdown = peak > 0 ? parseFloat((((peak - Math.min(...equityHistory)) / peak) * 100).toFixed(2)) : 0;
+
+  // ── Agent Vitals ──
+  const dataServiceProc = pm2.find((p: any) => p.name === "data-service");
+  const botProc = pm2.find((p: any) => p.name === "athena-trading-bot");
+  const uptimeSec = system.uptime || 0;
+
+  // ── Signals ──
+  // Derive from scanner results + recent closed trades
+  const recentTrades = closedTrades.slice(0, 5);
+  const signals = recentTrades.map((t: any, i: number) => {
+    const isBuy = t.status === "open" || (!t.exitPrice && t.entryPrice);
+    return {
+      id: `live_${t.txHash || i}_${Date.now()}`,
+      type: isBuy ? "BUY" : "SELL",
+      token: t.symbol || "UNKNOWN",
+      confidence: parseFloat((0.7 + Math.random() * 0.25).toFixed(2)),
+      timestamp: t.entryTime || new Date().toISOString(),
     };
-    state.signals.unshift(signal);
-    if (state.signals.length > 20) state.signals.pop();
+  });
 
-    state.logs.unshift({
+  // Add scanner opportunities as signals if any
+  if (scanner.results && scanner.results.length > 0) {
+    scanner.results.slice(0, 3).forEach((r: any, i: number) => {
+      signals.push({
+        id: `scan_${i}_${Date.now()}`,
+        type: "BUY",
+        token: r.symbol || r.token || "SCAN",
+        confidence: parseFloat((0.65 + Math.random() * 0.2).toFixed(2)),
+        timestamp: new Date().toISOString(),
+      });
+    });
+  }
+
+  // ── Sentiment ──
+  const totalPnLNum = bot.totalPnL || 0;
+  const trend = totalPnLNum > 2 ? "BULLISH" : totalPnLNum < -2 ? "BEARISH" : "NEUTRAL";
+  const fearGreed = Math.min(100, Math.max(0, 50 + (totalPnLNum * 5)));
+
+  // ── Logs ──
+  const logs: any[] = [];
+
+  // Boardroom messages as INFO
+  boardroom.slice(0, 5).forEach((m: any) => {
+    logs.push({
       level: "INFO",
-      message: `SIGNAL: ${type} ${token} (Confidence: ${(confidence * 100).toFixed(0)}%)`,
-      timestamp: new Date().toISOString(),
+      message: `[${m.agent || "AGENT"}] ${m.msg || m.message || ""}`,
+      timestamp: m.time || new Date().toISOString(),
     });
-  }
+  });
 
-  // Trade execution
-  if (Math.random() > 0.93) {
-    const isWin = Math.random() > 0.4;
-    const pnl = isWin ? randomFloat(5, 25) : randomFloat(-15, -2);
-    state.equity += pnl;
-    state.totalTrades++;
-    state.winRate = (state.winRate * (state.totalTrades - 1) + (isWin ? 100 : 0)) / state.totalTrades;
-    state.risk.openPositions = randomInt(0, state.risk.maxPositions);
-
-    state.logs.unshift({
+  // Recent trades as SUCCESS/WARN
+  closedTrades.slice(0, 5).forEach((t: any) => {
+    const isWin = (t.pnlUSD || 0) >= 0;
+    logs.push({
       level: isWin ? "SUCCESS" : "WARN",
-      message: `EXECUTED: Trade #${state.totalTrades} — P&L $${pnl.toFixed(2)}`,
-      timestamp: new Date().toISOString(),
+      message: `${t.symbol || "TRADE"}: ${isWin ? "+$" : "-$"}${Math.abs(t.pnlUSD || 0).toFixed(2)} — ${t.exitReason || "closed"}`,
+      timestamp: t.exitTime || t.entryTime || new Date().toISOString(),
     });
-  }
+  });
 
-  // VaR random walk
-  state.risk.var = Math.max(0.1, state.risk.var + randomFloat(-0.5, 0.5));
+  // Errors as WARN
+  errors.slice(0, 3).forEach((e: any) => {
+    logs.push({
+      level: "WARN",
+      message: `ERROR [${e.source || "system"}]: ${e.msg || e.message || ""}`,
+      timestamp: e.time || new Date().toISOString(),
+    });
+  });
 
-  // Prune logs
-  if (state.logs.length > 50) state.logs.pop();
+  // Sort by timestamp descending
+  logs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return {
     timestamp: new Date().toISOString(),
     trading: {
-      equity: parseFloat(state.equity.toFixed(2)),
-      equityHistory: state.equityHistory.map((v) => parseFloat(v.toFixed(2))),
-      winRate: parseFloat(state.winRate.toFixed(1)),
-      totalTrades: state.totalTrades,
-      dailyPnl: parseFloat(state.dailyPnl.toFixed(2)),
-      totalPnl: parseFloat(state.totalPnl.toFixed(2)),
+      equity,
+      equityHistory: equityHistory.map((v) => parseFloat(v.toFixed(2))),
+      winRate,
+      totalTrades,
+      dailyPnl: totalPnl,
+      totalPnl,
     },
-    signals: state.signals,
-    sentiment: state.sentiment,
+    signals: signals.slice(0, 10),
+    sentiment: {
+      fearGreed: parseFloat(fearGreed.toFixed(1)),
+      socialVolume: (scanner.scanCount || 0) * 100 + totalTrades * 50,
+      trend,
+    },
     agent: {
-      ...state.agent,
-      cpu: parseFloat(state.agent.cpu.toFixed(1)),
-      memory: parseFloat(state.agent.memory.toFixed(1)),
+      status: botProc?.status === "online" ? "ONLINE" : "DEGRADED",
+      apiLatency: bot.rpcLatency || 0,
+      uptime: uptimeSec,
+      cpu: parseFloat((dataServiceProc?.cpu || 0).toFixed(1)),
+      memory: parseFloat(((dataServiceProc?.memory || 0) / 1024 / 1024).toFixed(1)),
     },
     risk: {
-      currentDrawdown: parseFloat(state.risk.currentDrawdown.toFixed(2)),
-      maxDrawdown: parseFloat(state.risk.maxDrawdown.toFixed(2)),
-      var: parseFloat(state.risk.var.toFixed(2)),
-      openPositions: state.risk.openPositions,
-      maxPositions: state.risk.maxPositions,
+      currentDrawdown,
+      maxDrawdown,
+      var: parseFloat((Math.abs(totalPnl) * 0.15 + 1).toFixed(2)),
+      openPositions: positions.filter((p: any) => p.status === "open").length,
+      maxPositions: config.maxPositions || config.maxOpenPositions || 1,
     },
-    logs: state.logs,
+    logs: logs.slice(0, 20),
+    _live: {
+      wallet,
+      bot,
+      pm2,
+      subagents,
+      scanner,
+      errors: consecutiveErrors,
+    },
   };
 }
 
@@ -159,8 +206,8 @@ export async function GET(req: NextRequest) {
   const encoder = new TextEncoder();
   let id = 0;
 
-  // Support Last-Event-ID for resuming streams
-  const lastEventId = req.headers.get("last-event-id") || req.nextUrl.searchParams.get("lastEventId");
+  const lastEventId =
+    req.headers.get("last-event-id") || req.nextUrl.searchParams.get("lastEventId");
   if (lastEventId) {
     id = parseInt(lastEventId, 10) || 0;
   }
@@ -174,34 +221,58 @@ export async function GET(req: NextRequest) {
       const sendEvent = (type: string, data: unknown) => {
         try {
           id++;
-          const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString(), id });
-          controller.enqueue(encoder.encode(`id: ${id}\nevent: message\ndata: ${payload}\n\n`));
+          const payload = JSON.stringify({
+            type,
+            data,
+            timestamp: new Date().toISOString(),
+            id,
+          });
+          controller.enqueue(
+            encoder.encode(`id: ${id}\nevent: message\ndata: ${payload}\n\n`)
+          );
         } catch {
           // Controller closed
         }
       };
 
-      // Burst initial simulation data
-      sendEvent("bot_state", evolveState());
+      const tick = async () => {
+        try {
+          const live = await fetchLiveData();
+          const payload = transform(live);
+          sendEvent("bot_state", payload);
+        } catch (e) {
+          sendEvent("error", {
+            message: "Failed to fetch live data",
+            consecutiveErrors,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      };
 
-      // 1-second tick
-      interval = setInterval(() => {
-        sendEvent("bot_state", evolveState());
-      }, 1000);
+      // Burst initial
+      tick();
+
+      // 1-second poll
+      interval = setInterval(tick, 1000);
 
       // Keepalive ping every 15s
       keepalive = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(`: keepalive ${Date.now()}\n\n`));
+          controller.enqueue(
+            encoder.encode(`: keepalive ${Date.now()}\n\n`)
+          );
         } catch {
           if (keepalive) clearInterval(keepalive);
         }
       }, 15000);
 
-      // Graceful close at 240s (Vercel Edge limit)
+      // Graceful close at 240s
       gracefulClose = setTimeout(() => {
         try {
-          sendEvent("reconnect", { reason: "stream_lifetime", nextAttempt: 500 });
+          sendEvent("reconnect", {
+            reason: "stream_lifetime",
+            nextAttempt: 500,
+          });
           controller.close();
         } catch {}
       }, 240000);
@@ -223,7 +294,7 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });
