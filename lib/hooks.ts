@@ -59,7 +59,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
   const [state, setState] = useState<SSEState<T>>({
     data: null,
     connected: false,
-    connecting: true, // Show connecting on first render / SSR
+    connecting: true,
     error: null,
     lastEventId: null,
   });
@@ -70,6 +70,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
   const maxReconnectAttempts = 10;
   const baseDelay = 1000;
   const isMountedRef = useRef(true);
+  const lastEventIdRef = useRef<string | null>(null);
 
   const connect = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -82,7 +83,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
 
     // Build URL with Last-Event-ID if available
     let connectUrl = url;
-    const lastId = state.lastEventId;
+    const lastId = lastEventIdRef.current;
     if (lastId && typeof window !== "undefined") {
       const sep = url.includes("?") ? "&" : "?";
       connectUrl = `${url}${sep}lastEventId=${encodeURIComponent(lastId)}`;
@@ -110,10 +111,11 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
           try {
             const parsed = JSON.parse(e.data);
             const eventId = (e as any).lastEventId || parsed.id || null;
+            lastEventIdRef.current = eventId || lastEventIdRef.current;
             setState((prev) => ({
               ...prev,
               data: parsed,
-              lastEventId: eventId || prev.lastEventId,
+              lastEventId: lastEventIdRef.current || prev.lastEventId,
             }));
           } catch (err) {
             // Non-JSON data — store as string
@@ -132,10 +134,11 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
           try {
             const parsed = JSON.parse(e.data);
             const eventId = e.lastEventId || parsed.id || null;
+            lastEventIdRef.current = eventId || lastEventIdRef.current;
             setState((prev) => ({
               ...prev,
               data: parsed,
-              lastEventId: eventId || prev.lastEventId,
+              lastEventId: lastEventIdRef.current || prev.lastEventId,
             }));
           } catch {
             setState((prev) => ({
@@ -178,7 +181,7 @@ export function useSSE<T>(url: string, eventTypes: string[] = ["message"]) {
         error: `Failed to connect: ${err}`,
       }));
     }
-  }, [url, eventTypes, state.lastEventId]);
+  }, [url, eventTypes]);
 
   useEffect(() => {
     isMountedRef.current = true;
