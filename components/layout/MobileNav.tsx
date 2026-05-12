@@ -1,5 +1,5 @@
 "use client";
-import { LayoutGrid, GitBranch, CheckSquare, Calendar, MessageSquare, DollarSign, TrendingUp, Settings, FileText } from "lucide-react";
+import { LayoutGrid, CheckSquare, MessageSquare, TrendingUp, DollarSign } from "lucide-react";
 import type { Section } from "@/app/page";
 
 interface MobileNavProps {
@@ -22,14 +22,14 @@ export default function MobileNav({ section, onNavigate }: MobileNavProps) {
         <button
           key={item.id}
           onClick={() => onNavigate(item.id)}
-          className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors ${
+          className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded transition-colors ${
             section === item.id
-              ? "text-accent"
-              : "text-txt-muted hover:text-txt-primary"
+              ? "text-txt-primary"
+              : "text-txt-muted"
           }`}
         >
           {item.icon}
-          <span className="text-[10px] font-medium">{item.label}</span>
+          <span className="text-[0.55rem] font-semibold uppercase tracking-[0.08em]">{item.label}</span>
         </button>
       ))}
     </nav>

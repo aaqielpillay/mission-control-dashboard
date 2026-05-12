@@ -34,7 +34,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-bg-primary">
+    <div className="flex h-screen overflow-hidden bg-void">
       {/* Desktop Sidebar */}
       <div className="desktop-sidebar">
         <Sidebar
@@ -54,7 +54,7 @@ export default function Home() {
       </div>
 
       {/* Mobile Bottom Nav */}
-      <div className="mobile-bottom-nav hidden fixed bottom-0 left-0 right-0 z-50 bg-bg-secondary border-t border-border">
+      <div className="mobile-bottom-nav hidden fixed bottom-0 left-0 right-0 z-50 bg-[rgba(0,0,0,0.95)] border-t border-[rgba(255,255,255,0.05)] backdrop-blur-xl">
         <MobileNav section={section} onNavigate={setSection} />
       </div>
     </div>

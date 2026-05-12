@@ -8,20 +8,32 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        bg: {
-          primary: "#0a0a0f",
-          secondary: "#111118",
-          card: "#1a1a2e",
+        void: {
+          DEFAULT: "#000000",
+          elevated: "rgba(255, 255, 255, 0.02)",
+          surface: "rgba(255, 255, 255, 0.04)",
+          hover: "rgba(255, 255, 255, 0.06)",
         },
-        border: "#2d2d44",
-        accent: {
-          DEFAULT: "#8b5cf6",
-          hover: "#7c3aed",
+        bg: {
+          primary: "#000000",
+          secondary: "rgba(255, 255, 255, 0.04)",
+          card: "rgba(255, 255, 255, 0.04)",
+        },
+        border: {
+          DEFAULT: "rgba(255, 255, 255, 0.08)",
+          subtle: "rgba(255, 255, 255, 0.05)",
+          ghost: "rgba(255, 255, 255, 0.12)",
         },
         txt: {
-          primary: "#e2e8f0",
-          secondary: "#94a3b8",
-          muted: "#64748b",
+          primary: "#f0f0fa",
+          secondary: "rgba(240, 240, 250, 0.65)",
+          muted: "rgba(240, 240, 250, 0.40)",
+          ghost: "rgba(240, 240, 250, 0.25)",
+        },
+        accent: {
+          DEFAULT: "#f0f0fa",
+          hover: "rgba(240, 240, 250, 0.85)",
+          glow: "rgba(240, 240, 250, 0.15)",
         },
         status: {
           green: "#4ade80",
@@ -33,6 +45,18 @@ module.exports = {
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "monospace"],
+      },
+      letterSpacing: {
+        widest: "0.12em",
+        wider: "0.08em",
+        wide: "0.04em",
+      },
+      borderRadius: {
+        sm: "4px",
+        DEFAULT: "6px",
+        lg: "8px",
+        xl: "12px",
+        "2xl": "16px",
       },
       animation: {
         "fade-in": "fadeIn 0.3s ease-out",

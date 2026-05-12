@@ -1,52 +1,30 @@
 "use client";
-import type { Priority, AgentStatus } from "@/lib/types";
 
-interface PriorityBadgeProps {
-  priority: Priority;
+export function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
+  const cls = {
+    high: "badge badge-high",
+    medium: "badge badge-medium",
+    low: "badge badge-low",
+  };
+  return <span className={cls[priority]}>{priority}</span>;
 }
 
-export function PriorityBadge({ priority }: PriorityBadgeProps) {
-  const styles = {
-    high: "bg-red-500/20 text-red-400 border border-red-500/30",
-    medium: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
-    low: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
-  };
+export function DepartmentBadge({ dept }: { dept: string }) {
   return (
-    <span className={`badge ${styles[priority]}`}>
-      {priority}
+    <span className="badge bg-[rgba(240,240,250,0.08)] text-txt-secondary border border-[rgba(255,255,255,0.06)]">
+      {dept}
     </span>
   );
 }
 
-interface StatusBadgeProps {
-  status: AgentStatus;
-}
+export function StatusBadge({ status }: { status: "active" | "idle" | "offline" }) {
+  const labels = { active: "ACTIVE", idle: "IDLE", offline: "OFF" };
+  const dots = { active: "status-dot status-active", idle: "status-dot status-idle", offline: "status-dot status-offline" };
 
-export function StatusBadge({ status }: StatusBadgeProps) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className={`status-dot status-${status}`} />
-      <span className="text-xs text-txt-secondary capitalize">{status}</span>
-    </div>
-  );
-}
-
-interface DepartmentBadgeProps {
-  dept: string;
-}
-
-export function DepartmentBadge({ dept }: DepartmentBadgeProps) {
-  const colors: Record<string, string> = {
-    CEO: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-    CTO: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-    CMO: "bg-orange-500/20 text-orange-400 border-orange-500/30",
-    CRO: "bg-teal-500/20 text-teal-400 border-teal-500/30",
-    COO: "bg-pink-500/20 text-pink-400 border-pink-500/30",
-    specialist: "bg-gray-500/20 text-gray-400 border-gray-500/30",
-  };
-  return (
-    <span className={`badge ${colors[dept] || colors.specialist}`}>
-      {dept}
+    <span className="inline-flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-txt-muted">
+      <span className={dots[status]} />
+      {labels[status]}
     </span>
   );
 }

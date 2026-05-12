@@ -1,5 +1,5 @@
 "use client";
-import { Menu, Wifi, WifiOff } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useClock } from "@/lib/hooks";
 
 interface HeaderProps {
@@ -14,43 +14,44 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
   const date = now.toLocaleDateString("en-GB", { timeZone: "Africa/Johannesburg" });
 
   return (
-    <header className="h-14 bg-bg-secondary border-b border-border flex items-center justify-between px-4 flex-shrink-0">
-      {/* Left: Menu + Title */}
-      <div className="flex items-center gap-3">
+    <header className="h-14 bg-transparent border-b border-[rgba(255,255,255,0.05)] flex items-center justify-between px-4 flex-shrink-0">
+      {/* Left */}
+      <div className="flex items-center gap-4">
         <button
           onClick={onToggleSidebar}
-          className="p-2 rounded-lg hover:bg-bg-card transition-colors text-txt-secondary hover:text-txt-primary lg:hidden"
+          className="p-2 rounded hover:bg-[rgba(255,255,255,0.04)] transition-colors text-txt-muted hover:text-txt-primary lg:hidden"
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-status-green animate-pulse" />
-          <span className="text-xs font-medium text-txt-secondary uppercase tracking-wider">
+          <span className="w-1.5 h-1.5 rounded-full bg-status-green animate-pulse" />
+          <span className="text-[0.6rem] font-semibold text-txt-muted uppercase tracking-[0.12em]">
             Live
           </span>
         </div>
       </div>
 
-      {/* Right: Clock + Connection */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-4 text-xs">
+      {/* Right */}
+      <div className="flex items-center gap-5">
+        {/* Clocks */}
+        <div className="flex items-center gap-5 text-[0.65rem]">
           <div className="text-right">
-            <div className="text-txt-muted">UTC</div>
+            <div className="text-txt-ghost uppercase tracking-[0.08em]">UTC</div>
             <div className="text-txt-primary font-mono font-medium">{utc}</div>
           </div>
           <div className="text-right">
-            <div className="text-txt-muted">SAST</div>
+            <div className="text-txt-ghost uppercase tracking-[0.08em]">SAST</div>
             <div className="text-txt-primary font-mono font-medium">{sart}</div>
           </div>
           <div className="text-right hidden sm:block">
-            <div className="text-txt-muted">Date</div>
+            <div className="text-txt-ghost uppercase tracking-[0.08em]">Date</div>
             <div className="text-txt-secondary font-medium">{date}</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 text-status-green">
-          <Wifi size={14} />
-          <span className="text-[10px] font-semibold uppercase tracking-wider">SSE</span>
+        {/* SSE indicator */}
+        <div className="flex items-center gap-1.5 text-txt-muted">
+          <span className="text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-txt-ghost">SSE</span>
         </div>
       </div>
     </header>
