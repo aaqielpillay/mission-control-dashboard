@@ -1,6 +1,7 @@
 "use client";
 import { LayoutGrid, CheckSquare, MessageSquare, TrendingUp, DollarSign } from "lucide-react";
-import type { Section } from "@/app/page";
+
+type Section = string; // allow any section id
 
 interface MobileNavProps {
   section: Section;
